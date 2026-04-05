@@ -128,12 +128,82 @@ async def login(user_data: LoginRequest, db: Session = Depends(get_db)) -> dict:
     return {"access_token": access_token, "token_type": "bearer"}
 
 
-@router.get("/me", response_model=UserResponse)
-async def get_me(current_user: User = Depends(get_current_user)) -> User:
-    return current_user
+@router.get("/me")
+async def get_me(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> dict:
+    from models import Organization
+    org = db.query(Organization).filter(Organization.owner_id == current_user.id).first()
+    return {
+        "id": current_user.id,
+        "email": current_user.email,
+        "username": current_user.username,
+        "full_name": current_user.full_name,
+        "is_active": current_user.is_active,
+        "created_at": current_user.created_at.isoformat(),
+        "updated_at": current_user.updated_at.isoformat(),
+        "organization_id": org.id if org else None,
+        "organization_name": org.name if org else None,
+    }
 
 
 @router.post("/logout")
 async def logout():
     """Logout endpoint. Token invalidation handled client-side."""
     return {"message": "Successfully logged out"}
+
+
+
+# --- Password Reset ---
+
+
+def create_reset_token(user_id: int) -> str:
+    """Create a short-lived reset token (15 min)."""
+    return create_access_token(
+        data={"sub": str(user_id), "type": "reset"},
+        expires_delta=timedelta(minutes=15),
+    )
+
+
+@router.post("/forgot-password")
+async def forgot_password(
+    request_data: dict,
+    db: Session = Depends(get_db),
+) -> dict:
+    email = request_data.get("email", "")
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        return {"message": "If that email is registered, a reset link has been sent.", "reset_token": None}
+    token = create_reset_token(user.id)
+    # Send reset email
+    try:
+        from email_service import send_reset_email
+        from config import get_settings as _gs
+        send_reset_email(email, token, base_url=_gs().frontend_url)
+    except Exception as e:
+        print(f"[auth] email send failed: {e}")
+    return {"message": "Reset token generated.", "reset_token": token}
+
+
+@router.post("/reset-password")
+async def reset_password(
+    request_data: dict,
+    db: Session = Depends(get_db),
+) -> dict:
+    token = request_data.get("token", "")
+    new_password = request_data.get("new_password", "")
+    if not token or not new_password:
+        raise HTTPException(status_code=400, detail="Token and new_password required")
+    if len(new_password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    try:
+        payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
+        if payload.get("type") != "reset":
+            raise HTTPException(status_code=400, detail="Invalid reset token")
+        user_id = int(payload.get("sub"))
+    except JWTError:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset token")
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    user.hashed_password = hash_password(new_password)
+    db.commit()
+    return {"message": "Password reset successful. You can now log in."}

@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: chatio-backend
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: SECRET_KEY
+        sync: false
+      - key: LINE_CHANNEL_ID
+        sync: false
+      - key: LINE_CHANNEL_SECRET
+        sync: false
+      - key: LINE_CHANNEL_ACCESS_TOKEN
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: DATABASE_URL
+        value: sqlite:////data/chatio.db
+      - key: FRONTEND_URL
+        value: http://localhost:3000
+    disk:
+      name: chatio-db
+      mountPath: /data
+      sizeGB: 1

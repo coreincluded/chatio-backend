@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     ai_model: str = "gpt-3.5-turbo"  # gpt-3.5-turbo, gpt-4, claude-3-sonnet, etc.
 
+    # SMTP (Gmail)
+    smtp_user: str = "chatioinfo@gmail.com"
+    smtp_pass: str = ""  # Gmail App Password
+
     # App
     app_name: str = "Chatio"
     debug: bool = True

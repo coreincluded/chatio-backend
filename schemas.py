@@ -627,3 +627,12 @@ class IntegrationResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# Password reset schemas
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str

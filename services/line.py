@@ -11,8 +11,8 @@ logger = logging.getLogger(__name__)
 class LINEClient:
     """LINE Messaging API client."""
 
-    BASE_URL = "https://api.line.biz/v1"
-    MESSAGING_API_URL = "https://api.line.biz/v1"
+    BASE_URL = "https://api.line.me/v2"
+    MESSAGING_API_URL = "https://api.line.me/v2"
 
     def __init__(self, channel: Channel):
         """

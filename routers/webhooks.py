@@ -117,6 +117,7 @@ async def process_line_message_event(channel: Channel, event: Dict[str, Any], db
                 customer_name=message_data.get("from", "Unknown"),
             )
             db.add(conversation)
+            db.flush()  # Flush to get conversation.id before creating message
 
         # Create message
         message = Message(
@@ -172,11 +173,11 @@ async def process_line_follow_event(channel: Channel, event: Dict[str, Any], db:
             db.add(conversation)
             db.flush()
 
-            # Sync contact from conversation
-            await sync_contact_from_conversation(conversation, db)
+        # Sync contact from conversation
+        await sync_contact_from_conversation(conversation, db)
 
-            # Trigger new conversation automations
-            await process_automation_rules(conversation, None, db, trigger_type="new_conversation")
+        # Trigger new conversation automations
+        await process_automation_rules(conversation, None, db, trigger_type="new_conversation")
 
         return 1
 
@@ -216,12 +217,8 @@ async def facebook_webhook_verify(
     hub_challenge: str = Query(None),
     db: Session = Depends(get_db),
 ) -> str:
-    """
-    Verify webhook endpoint for Facebook.
-    Facebook requires GET request with verification challenge.
-    """
+    """Verify webhook endpoint for Facebook."""
     try:
-        # Get channel
         channel = db.query(Channel).filter(
             Channel.id == channel_id,
             Channel.channel_type == ChannelType.FACEBOOK_MESSENGER,
@@ -233,7 +230,6 @@ async def facebook_webhook_verify(
                 detail="Channel not found",
             )
 
-        # Verify token
         expected_token = channel.extra_data.get("verify_token", "")
         if hub_verify_token != expected_token:
             logger.warning(f"Invalid Facebook verify token for channel {channel_id}")
@@ -268,7 +264,6 @@ async def facebook_webhook(
 ) -> dict:
     """Receive webhook from Facebook Graph API."""
     try:
-        # Get channel
         channel = db.query(Channel).filter(
             Channel.id == channel_id,
             Channel.channel_type == ChannelType.FACEBOOK_MESSENGER,
@@ -280,7 +275,6 @@ async def facebook_webhook(
                 detail="Channel not found",
             )
 
-        # Parse JSON
         body_json = await request.json()
         entries = body_json.get("entry", [])
 
@@ -306,13 +300,10 @@ async def process_facebook_message_event(channel: Channel, messaging: Dict[str, 
     """Process Facebook message event."""
     try:
         sender = messaging.get("sender", {})
-        recipient = messaging.get("recipient", {})
         message_data = messaging.get("message", {})
-
         sender_id = sender.get("id")
         external_conversation_id = sender_id
 
-        # Get or create conversation
         conversation = db.query(Conversation).filter(
             Conversation.channel_id == channel.id,
             Conversation.external_conversation_id == external_conversation_id,
@@ -327,8 +318,8 @@ async def process_facebook_message_event(channel: Channel, messaging: Dict[str, 
                 customer_name=f"User {sender_id}",
             )
             db.add(conversation)
+            db.flush()  # Flush to get conversation.id before creating message
 
-        # Create message
         message = Message(
             conversation_id=conversation.id,
             channel_id=channel.id,
@@ -340,18 +331,11 @@ async def process_facebook_message_event(channel: Channel, messaging: Dict[str, 
             extra_data={"has_attachments": "attachments" in message_data},
         )
         db.add(message)
-
-        # Update conversation
         conversation.last_message_at = datetime.utcnow()
-
         db.flush()
 
-        # Sync contact from conversation
         await sync_contact_from_conversation(conversation, db)
-
-        # Process automations
         await process_automation_rules(conversation, message, db)
-
         return 1
 
     except Exception as e:
@@ -369,7 +353,6 @@ async def instagram_webhook(
 ) -> dict:
     """Receive webhook from Instagram Graph API."""
     try:
-        # Get channel
         channel = db.query(Channel).filter(
             Channel.id == channel_id,
             Channel.channel_type == ChannelType.INSTAGRAM_DM,
@@ -381,7 +364,6 @@ async def instagram_webhook(
                 detail="Channel not found",
             )
 
-        # Parse JSON
         body_json = await request.json()
         entries = body_json.get("entry", [])
 
@@ -408,11 +390,9 @@ async def process_instagram_message_event(channel: Channel, messaging: Dict[str,
     try:
         sender = messaging.get("sender", {})
         message_data = messaging.get("message", {})
-
         sender_id = sender.get("id")
         external_conversation_id = sender_id
 
-        # Get or create conversation
         conversation = db.query(Conversation).filter(
             Conversation.channel_id == channel.id,
             Conversation.external_conversation_id == external_conversation_id,
@@ -427,8 +407,8 @@ async def process_instagram_message_event(channel: Channel, messaging: Dict[str,
                 customer_name=f"User {sender_id}",
             )
             db.add(conversation)
+            db.flush()  # Flush to get conversation.id before creating message
 
-        # Create message
         message = Message(
             conversation_id=conversation.id,
             channel_id=channel.id,
@@ -439,18 +419,11 @@ async def process_instagram_message_event(channel: Channel, messaging: Dict[str,
             content=message_data.get("text", ""),
         )
         db.add(message)
-
-        # Update conversation
         conversation.last_message_at = datetime.utcnow()
-
         db.flush()
 
-        # Sync contact from conversation
         await sync_contact_from_conversation(conversation, db)
-
-        # Process automations
         await process_automation_rules(conversation, message, db)
-
         return 1
 
     except Exception as e:
@@ -466,11 +439,8 @@ async def twitter_webhook(
     request: Request,
     db: Session = Depends(get_db),
 ) -> dict:
-    """
-    Receive webhook from Twitter/X Account Activity API.
-    """
+    """Receive webhook from Twitter/X Account Activity API."""
     try:
-        # Get channel
         channel = db.query(Channel).filter(
             Channel.id == channel_id,
             Channel.channel_type == ChannelType.TWITTER_X,
@@ -482,7 +452,6 @@ async def twitter_webhook(
                 detail="Channel not found",
             )
 
-        # Verify signature (optional, as Twitter uses bearer token)
         body = await request.body()
         x_signature = request.headers.get("x-twitter-webhooks-signature-256", "")
 
@@ -494,16 +463,12 @@ async def twitter_webhook(
                 detail="Invalid signature",
             )
 
-        # Parse JSON
         body_json = json.loads(body.decode())
 
-        # Handle CRC challenge (Twitter sends this during setup)
         if "for_user_id" in body_json and "crc_token" in body_json:
-            # This is a CRC challenge - just return success
             logger.info(f"Twitter CRC challenge received for channel {channel_id}")
             return {"status": "ok"}
 
-        # Process direct message events
         if "direct_message_events" in body_json:
             processed_count = 0
             for event in body_json.get("direct_message_events", []):
@@ -526,7 +491,6 @@ async def twitter_webhook(
 async def process_twitter_message_event(channel: Channel, event: Dict[str, Any], db: Session) -> int:
     """Process Twitter direct message event."""
     try:
-        # Skip message_create events we sent
         if event.get("type") != "message_create":
             return 0
 
@@ -535,14 +499,12 @@ async def process_twitter_message_event(channel: Channel, event: Dict[str, Any],
         recipient_id = message_create.get("target", {}).get("recipient_id")
         message_data = message_create.get("message_data", {})
 
-        # Only process if we are the recipient (messages sent to us)
         if recipient_id != channel.external_channel_id:
             return 0
 
         external_conversation_id = sender_id
         text = message_data.get("text", "")
 
-        # Get or create conversation
         conversation = db.query(Conversation).filter(
             Conversation.channel_id == channel.id,
             Conversation.external_conversation_id == external_conversation_id,
@@ -557,8 +519,8 @@ async def process_twitter_message_event(channel: Channel, event: Dict[str, Any],
                 customer_name=f"User {sender_id}",
             )
             db.add(conversation)
+            db.flush()  # Flush to get conversation.id before creating message
 
-        # Create message
         message = Message(
             conversation_id=conversation.id,
             channel_id=channel.id,
@@ -569,18 +531,11 @@ async def process_twitter_message_event(channel: Channel, event: Dict[str, Any],
             content=text,
         )
         db.add(message)
-
-        # Update conversation
         conversation.last_message_at = datetime.utcnow()
-
         db.flush()
 
-        # Sync contact from conversation
         await sync_contact_from_conversation(conversation, db)
-
-        # Process automations
         await process_automation_rules(conversation, message, db)
-
         return 1
 
     except Exception as e:
@@ -596,11 +551,8 @@ async def linkedin_webhook(
     request: Request,
     db: Session = Depends(get_db),
 ) -> dict:
-    """
-    Receive webhook from LinkedIn Messaging.
-    """
+    """Receive webhook from LinkedIn Messaging."""
     try:
-        # Get channel
         channel = db.query(Channel).filter(
             Channel.id == channel_id,
             Channel.channel_type == ChannelType.LINKEDIN,
@@ -612,13 +564,9 @@ async def linkedin_webhook(
                 detail="Channel not found",
             )
 
-        # Parse JSON
         body_json = await request.json()
-
-        # LinkedIn sends events in different formats
         processed_count = 0
 
-        # Handle messaging events
         if "data" in body_json and isinstance(body_json["data"], list):
             for event_item in body_json["data"]:
                 if "elements" in event_item:
@@ -639,8 +587,6 @@ async def linkedin_webhook(
 async def process_linkedin_message_event(channel: Channel, event: Dict[str, Any], db: Session) -> int:
     """Process LinkedIn message event."""
     try:
-        # Extract message info from LinkedIn event
-        # LinkedIn's format is different - extract essentials
         message_text = event.get("text", event.get("content", ""))
         sender_id = event.get("from", {}).get("id") or event.get("from_id")
         message_id = event.get("id", f"linkedin_{datetime.utcnow().timestamp()}")
@@ -650,7 +596,6 @@ async def process_linkedin_message_event(channel: Channel, event: Dict[str, Any]
 
         external_conversation_id = sender_id
 
-        # Get or create conversation
         conversation = db.query(Conversation).filter(
             Conversation.channel_id == channel.id,
             Conversation.external_conversation_id == external_conversation_id,
@@ -665,8 +610,8 @@ async def process_linkedin_message_event(channel: Channel, event: Dict[str, Any]
                 customer_name=f"User {sender_id}",
             )
             db.add(conversation)
+            db.flush()  # Flush to get conversation.id before creating message
 
-        # Create message
         message = Message(
             conversation_id=conversation.id,
             channel_id=channel.id,
@@ -677,18 +622,11 @@ async def process_linkedin_message_event(channel: Channel, event: Dict[str, Any]
             content=message_text,
         )
         db.add(message)
-
-        # Update conversation
         conversation.last_message_at = datetime.utcnow()
-
         db.flush()
 
-        # Sync contact from conversation
         await sync_contact_from_conversation(conversation, db)
-
-        # Process automations
         await process_automation_rules(conversation, message, db)
-
         return 1
 
     except Exception as e:

@@ -8,7 +8,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from config import get_settings
 from database import SessionLocal, init_db
-from models import User, Organization, Channel, ChannelType, Subscription
+from models import User, Organization, Channel, ChannelType, Subscription, SubscriptionTier
 from routers import (
     auth, channels, messages, automations, webhooks, oauth, ai,
     automation_templates, contacts, analytics, team, integrations,
@@ -72,7 +72,6 @@ def init_default_channel():
                 full_name="Chatio Admin",
                 hashed_password=pwd_context.hash(settings.secret_key[:16]),
                 is_active=True,
-                is_verified=True,
             )
             db.add(admin_user)
             db.flush()
@@ -91,7 +90,7 @@ def init_default_channel():
             # Create free subscription
             sub = Subscription(
                 organization_id=org.id,
-                plan="free",
+                tier=SubscriptionTier.FREE,
                 is_active=True,
             )
             db.add(sub)
@@ -101,7 +100,7 @@ def init_default_channel():
         # Create LINE channel
         channel = Channel(
             organization_id=org.id,
-            name="紙上世界書坊 LINE OA",
+            name="\u7d19\u4e0a\u4e16\u754c\u66f8\u574a LINE OA",
             channel_type=ChannelType.LINE_OA,
             external_channel_id=line_channel_id,
             access_token=line_access_token,

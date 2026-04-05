@@ -47,7 +47,6 @@ def init_default_channel():
     """Create default admin user, org, and LINE channel from env vars on first run."""
     db = SessionLocal()
     try:
-        # Check if any channel exists already
         existing = db.query(Channel).first()
         if existing:
             logger.info("Channels already exist, skipping init")
@@ -61,7 +60,6 @@ def init_default_channel():
             logger.info("LINE env vars not set, skipping channel init")
             return
 
-        # Create default admin user if not exists
         admin_user = db.query(User).filter(User.email == "admin@chatio.app").first()
         if not admin_user:
             from passlib.context import CryptContext
@@ -77,7 +75,6 @@ def init_default_channel():
             db.flush()
             logger.info(f"Created default admin user (id={admin_user.id})")
 
-        # Create default org if not exists
         org = db.query(Organization).first()
         if not org:
             org = Organization(
@@ -86,8 +83,6 @@ def init_default_channel():
             )
             db.add(org)
             db.flush()
-
-            # Create free subscription
             sub = Subscription(
                 organization_id=org.id,
                 tier=SubscriptionTier.FREE,
@@ -97,10 +92,9 @@ def init_default_channel():
             db.flush()
             logger.info(f"Created default org (id={org.id})")
 
-        # Create LINE channel
         channel = Channel(
             organization_id=org.id,
-            name="\u7d19\u4e0a\u4e16\u754c\u66f8\u574a LINE OA",
+            name="LINE OA Channel",
             channel_type=ChannelType.LINE_OA,
             external_channel_id=line_channel_id,
             access_token=line_access_token,
@@ -109,7 +103,7 @@ def init_default_channel():
         )
         db.add(channel)
         db.commit()
-        logger.info(f"Created LINE channel (id={channel.id}) for channel_id={line_channel_id}")
+        logger.info(f"Created LINE channel (id={channel.id})")
 
     except Exception as e:
         logger.error(f"Error in init_default_channel: {str(e)}")
@@ -118,7 +112,6 @@ def init_default_channel():
         db.close()
 
 
-# Initialize database
 @app.on_event("startup")
 async def startup_event():
     """Initialize database on startup."""
@@ -131,18 +124,11 @@ async def startup_event():
         raise
 
 
-# Health check endpoint
 @app.get("/health", status_code=status.HTTP_200_OK)
 async def health_check() -> dict:
-    """Health check endpoint."""
-    return {
-        "status": "ok",
-        "app": settings.app_name,
-        "environment": settings.environment,
-    }
+    return {"status": "ok", "app": settings.app_name, "environment": settings.environment}
 
 
-# Include routers
 app.include_router(auth.router)
 app.include_router(channels.router)
 app.include_router(messages.router)
@@ -159,35 +145,17 @@ app.include_router(appointments.router)
 app.include_router(translation.router)
 
 
-# Root endpoint
 @app.get("/", status_code=status.HTTP_200_OK)
 async def root() -> dict:
-    """Root endpoint."""
-    return {
-        "message": "Welcome to Chatio API",
-        "version": "0.1.0",
-        "docs": "/api/docs",
-    }
+    return {"message": "Welcome to Chatio API", "version": "0.1.0", "docs": "/api/docs"}
 
 
-# Global exception handler
 @app.exception_handler(SQLAlchemyError)
 async def sqlalchemy_exception_handler(request, exc):
-    """Handle SQLAlchemy exceptions."""
     logger.error(f"Database error: {str(exc)}")
-    return JSONResponse(
-        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-        content={"detail": "Database error occurred"}
-    )
+    return JSONResponse(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, content={"detail": "Database error occurred"})
 
 
 if __name__ == "__main__":
     import uvicorn
-
-    uvicorn.run(
-        "main:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=settings.debug,
-        log_level="info",
-    )
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=settings.debug, log_level="info")
